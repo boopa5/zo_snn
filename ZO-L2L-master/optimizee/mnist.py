@@ -74,6 +74,9 @@ class MnistConvModel(MnistModel):
         return F.log_softmax(x, dim=1)
 
 
+class MnistSpikingConv(MnistModel):
+    pass
+
 class MnistAttack(optimizee.Optimizee):
     def __init__(self, attack_model, batch_size=1, channel=1, width=28, height=28, c=0.1, gap=0.0,
                  loss_type="l1", initial_noise=True):
