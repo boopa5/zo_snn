@@ -4,6 +4,8 @@ import torch.nn.functional as F
 from torchvision import datasets, transforms
 from torch.utils.data import SubsetRandomSampler, Subset
 
+import snntorch as snn
+
 import optimizee
 
 import os
@@ -75,7 +77,70 @@ class MnistConvModel(MnistModel):
 
 
 class MnistSpikingConv(MnistModel):
-    pass
+
+    # Network Architecture
+    num_inputs = 28*28
+    num_hidden = 1000
+    num_outputs = 10
+
+    # Temporal Dynamics
+    num_steps = 25
+    beta = 0.95
+
+    def __init__(self):
+        super(MnistLinearModel).__init__()
+        spike_grad = self.LocalZO.apply
+        
+        # Initialize layers
+        self.fc1 = nn.Linear(MnistSpikingConv.num_inputs, MnistSpikingConv.num_hidden)
+        self.lif1 = snn.Leaky(beta=MnistSpikingConv.beta, spike_grad=spike_grad)
+        # self.lif1 = LIFSurrogate(beta=beta)
+        self.fc2 = nn.Linear(MnistSpikingConv.num_hidden, MnistSpikingConv.num_outputs)
+        self.lif2 = snn.Leaky(beta=MnistSpikingConv.beta, spike_grad=spike_grad)
+        # self.lif2 = LIFSurrogate(beta=beta)
+
+    def forward(self, x):
+
+        # Initialize hidden states at t=0
+        mem1 = self.lif1.init_leaky()
+        mem2 = self.lif2.init_leaky()
+
+        # Record the final layer
+        spk2_rec = []
+        mem2_rec = []
+
+        for step in range(MnistSpikingConv.num_steps):
+            cur1 = self.fc1(x)
+            spk1, mem1 = self.lif1(cur1, mem1)
+            cur2 = self.fc2(spk1)
+            spk2, mem2 = self.lif2(cur2, mem2)
+            spk2_rec.append(spk2)
+            mem2_rec.append(mem2)
+
+        return torch.stack(spk2_rec, dim=0), torch.stack(mem2_rec, dim=0)
+
+    class LocalZO(torch.autograd.Function):
+        @staticmethod
+        def forward(ctx, input_):
+
+
+            # dist = MultivariateNormal(loc=torch.zeros(input_.shape[-1]), covariance_matrix=torch.eye(input_.shape[-1]))
+            z = torch.randn_like(input_)
+            grad = (torch.abs(input_) < 0.05 * torch.abs(z)) * torch.abs(z) / (2 * 0.05)
+
+            # torch.div(grad, 1)
+            ctx.save_for_backward(grad)
+            out = (input_ > 0).float()
+            
+            return out
+        
+
+        @staticmethod
+        def backward(ctx, grad_output):
+            (grad,) = ctx.saved_tensors
+            grad_input = grad_output.clone()
+
+            return grad * grad_input
 
 class MnistAttack(optimizee.Optimizee):
     def __init__(self, attack_model, batch_size=1, channel=1, width=28, height=28, c=0.1, gap=0.0,

@@ -1,0 +1,1 @@
+Epoch: 1, final loss 2.8577176597597687, average final/initial loss ratio: 0.2556906250100341, test loss 1.9313228338646182, test loss ratio 0.16056111308759158
