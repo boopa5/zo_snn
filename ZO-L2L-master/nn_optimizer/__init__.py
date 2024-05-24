@@ -5,7 +5,7 @@ import os
 
 
 class NNOptimizer(nn.Module):
-    def __init__(self, model, args):
+    def __init__(self, model, args=None):
         super(NNOptimizer, self).__init__()
         self.meta_model = model
 

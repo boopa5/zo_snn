@@ -12,7 +12,7 @@ import optimizee
 # ZO optimizer (UpdateRNN only)
 class ZOOptimizer(nn_optimizer.NNOptimizer):
 
-    def __init__(self, model, args, num_layers=1, input_dim=1, hidden_size=10):
+    def __init__(self, model, args=None, num_layers=1, input_dim=1, hidden_size=10, q=1):
         super(ZOOptimizer, self).__init__(model, args)
 
         self.update_rnn = nn.LSTM(input_dim, hidden_size, num_layers, batch_first=True, bias=False)
@@ -22,8 +22,8 @@ class ZOOptimizer(nn_optimizer.NNOptimizer):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.input_dim = input_dim
-
-        self.q = args.grad_est_q
+        self.q = q
+        # self.q = args.grad_est_q
 
     def reset_state(self, keep_states=False, model=None, use_cuda=False, gpu_num=0):
         self.meta_model.reset()
@@ -51,6 +51,7 @@ class ZOOptimizer(nn_optimizer.NNOptimizer):
         o1 = self.outputer(output1)
         return o1.squeeze()
 
+
     def meta_update(self, model, data, target):
         # compute the zeroth-order gradient estimate of the model
         f_x = model(data)
@@ -76,6 +77,28 @@ class ZOOptimizer(nn_optimizer.NNOptimizer):
         # Finally, copy values from the meta model to the normal one.
         self.meta_model.copy_params_to(model)
         return self.meta_model.model, loss, f_x
+    
+
+    # using bp gradient from LocalZO
+    def meta_update2(self, model: nn.Module, data, target):
+        f_x = model(data)
+        loss = model.loss(f_x, target)
+
+        flat_params = self.meta_model.get_flat_params()
+
+        model.zero_grad()
+        loss.backward()
+        
+        flat_grads = model.get_grads()
+        inputs = Variable(flat_grads.view(-1, 1).unsqueeze(1))
+
+        delta = self(inputs)
+        flat_params = flat_params + delta
+
+        self.meta_model.set_flat_params(flat_params)
+        self.meta_model.copy_params_to(model)
+        return self.meta_model.model, loss, f_x
+
 
 
 # ZO optimizer (both UpdateRNN and QueryRNN)

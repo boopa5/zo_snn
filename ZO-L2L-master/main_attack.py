@@ -24,6 +24,67 @@ def cycle(iterable):
             yield x
 
 
+def train_optimizer_snn(device):
+    meta_model = optimizee.mnist.MnistSpikingConvModel()
+    meta_model.to(device)
+    train_loader, test_loader = meta_model.dataset_loader()
+    train_loader = iter(cycle(train_loader))
+
+
+    meta_optimizer = nn_optimizer.zoopt.ZOOptimizer(optimizee.MetaModel(meta_model))
+    meta_optimizer.to(device)
+
+    optimizer = optim.Adam(meta_optimizer.parameters(), lr=1e-3)
+
+    num_epoch = 1
+    updates_per_epoch = 10
+    optimizer_steps = 200
+    truncated_bptt_step = 20
+    for epoch in range(num_epoch):
+        meta_optimizer.train()
+        train_batch = iter(train_loader)
+
+        for i in range(updates_per_epoch):
+            model = optimizee.mnist.MnistSpikingConvModel()
+            data, targets = next(train_loader)
+            data, target = Variable(data.double()), Variable(target)
+            data.to(device); data.to(device)
+
+            for k in range(optimizer_steps // truncated_bptt_step):
+                meta_optimizer.reset_state(keep_states=k>0, model=model)
+
+                loss_sum = 0
+                prev_loss = torch.zeros(1).to(device)
+
+                for j in range(truncated_bptt_step):
+                    # Perfom a meta update using gradients from model
+                    # and return the current meta model saved in the nn_optimizer
+                    meta_model, *_ = meta_optimizer.meta_update(model, data, target)
+
+                    # Compute a loss for a step the meta nn_optimizer
+                    # Use first-order method to train the zeroth-order optimizer
+                    # (assume the gradient is available in training time)
+                    f_x = meta_model(data)
+                    loss = meta_model.loss(f_x, target)
+
+                    loss_sum += (k * truncated_bptt_step + j) * (loss - Variable(prev_loss))
+                    prev_loss = loss.data
+
+                    if hasattr(meta_optimizer, "reg_loss"):
+                        loss_sum += meta_optimizer.reg_loss
+                    if hasattr(meta_optimizer, "grad_reg_loss"):
+                        loss_sum += meta_optimizer.grad_reg_loss
+
+                # Update the parameters of the meta nn_optimizer
+                meta_optimizer.zero_grad()
+                loss_sum.backward()
+                for name, param in meta_optimizer.named_parameters():
+                    if param.requires_grad:
+                        param.grad.data.clamp_(-1, 1)
+                optimizer.step()
+
+    return None
+
 def train_optimizer_attack(args):
     assert "Attack" in args.train_task
     task = train_task_list.tasks[args.train_task]

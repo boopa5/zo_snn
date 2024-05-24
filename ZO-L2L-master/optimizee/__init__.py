@@ -28,6 +28,19 @@ class Optimizee(nn.Module):
                 except:
                     pass
 
+
+    def get_grads(self):
+        grads = []
+        for name, module in self.named_modules():
+            if len(module._parameters) != 0:
+                grads.append(module._parameters['weight'].grad.view(-1))
+                try:
+                    grads.append(module._parameters['bias'].grad.view(-1))
+                except:
+                    pass
+        return torch.cat(grads)    
+
+
     def get_params(self):
         params = []
         for name, module in self.named_modules():

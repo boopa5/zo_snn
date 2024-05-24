@@ -2,9 +2,11 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torchvision import datasets, transforms
-from torch.utils.data import SubsetRandomSampler, Subset
+from torch.utils.data import SubsetRandomSampler, Subset, DataLoader
 
 import snntorch as snn
+import snntorch.functional as SF
+
 
 import optimizee
 
@@ -75,8 +77,32 @@ class MnistConvModel(MnistModel):
         x = self.fc2(x)
         return F.log_softmax(x, dim=1)
 
+class SpikingMnistModel(optimizee.Optimizee):
+    def __init__(self):
+        super(SpikingMnistModel, self).__init__()
 
-class MnistSpikingConv(MnistModel):
+    @staticmethod
+    def dataset_loader(data_dir='/tmp/data/mnist', batch_size=128, test_batch_size=128):
+        transform = transforms.Compose([
+            transforms.Resize((28, 28)),
+            transforms.Grayscale(),
+            transforms.ToTensor(),
+            transforms.Normalize((0,), (1,))])
+        
+        mnist_train = datasets.MNIST(data_dir, train=True, download=True, transform=transform)
+        mnist_test = datasets.MNIST(data_dir, train=False, download=True, transform=transform)
+
+        train_loader = DataLoader(mnist_train, batch_size=batch_size, shuffle=True, drop_last=True)
+        test_loader = DataLoader(mnist_test, batch_size=test_batch_size, shuffle=True, drop_last=True)
+
+        return train_loader, test_loader
+
+    def loss(self, spk_rec, tgt):
+        loss = SF.ce_rate_loss(spk_rec, tgt)
+        return loss
+    
+
+class MnistSpikingConvModel(SpikingMnistModel):
 
     # Network Architecture
     num_inputs = 28*28
@@ -89,27 +115,25 @@ class MnistSpikingConv(MnistModel):
 
     def __init__(self):
         super(MnistLinearModel).__init__()
-        spike_grad = self.LocalZO.apply
+        spike_grad = self.local_zo(delta=0.6, q=1)
         
         # Initialize layers
-        self.fc1 = nn.Linear(MnistSpikingConv.num_inputs, MnistSpikingConv.num_hidden)
-        self.lif1 = snn.Leaky(beta=MnistSpikingConv.beta, spike_grad=spike_grad)
-        # self.lif1 = LIFSurrogate(beta=beta)
-        self.fc2 = nn.Linear(MnistSpikingConv.num_hidden, MnistSpikingConv.num_outputs)
-        self.lif2 = snn.Leaky(beta=MnistSpikingConv.beta, spike_grad=spike_grad)
-        # self.lif2 = LIFSurrogate(beta=beta)
+        self.fc1 = nn.Linear(MnistSpikingConvModel.num_inputs, MnistSpikingConvModel.num_hidden)
+        self.lif1 = snn.Leaky(beta=MnistSpikingConvModel.beta, spike_grad=spike_grad)
+
+        self.fc2 = nn.Linear(MnistSpikingConvModel.num_hidden, MnistSpikingConvModel.num_outputs)
+        self.lif2 = snn.Leaky(beta=MnistSpikingConvModel.beta, spike_grad=spike_grad)
+
 
     def forward(self, x):
 
-        # Initialize hidden states at t=0
         mem1 = self.lif1.init_leaky()
         mem2 = self.lif2.init_leaky()
 
-        # Record the final layer
         spk2_rec = []
         mem2_rec = []
 
-        for step in range(MnistSpikingConv.num_steps):
+        for _ in range(MnistSpikingConvModel.num_steps):
             cur1 = self.fc1(x)
             spk1, mem1 = self.lif1(cur1, mem1)
             cur2 = self.fc2(spk1)
@@ -117,18 +141,25 @@ class MnistSpikingConv(MnistModel):
             spk2_rec.append(spk2)
             mem2_rec.append(mem2)
 
-        return torch.stack(spk2_rec, dim=0), torch.stack(mem2_rec, dim=0)
+        # return torch.stack(spk2_rec, dim=0), torch.stack(mem2_rec, dim=0)
+        return torch.stack(spk2_rec)
+
+    def local_zo(self, delta=0.05, q=1):
+        
+        def inner(input_):
+            return self.LocalZO.apply(input_, delta, q)
+        return inner
+    
 
     class LocalZO(torch.autograd.Function):
         @staticmethod
-        def forward(ctx, input_):
+        def forward(ctx, input_, delta=0.05, q=1):
+            grad = torch.zeros_like(input_)
+            for _ in range(q):
+                z = torch.randn_like(input_)
+                grad += (torch.abs(input_) < delta * torch.abs(z)) * torch.abs(z) / (2 * delta)
+            torch.div(grad, q)
 
-
-            # dist = MultivariateNormal(loc=torch.zeros(input_.shape[-1]), covariance_matrix=torch.eye(input_.shape[-1]))
-            z = torch.randn_like(input_)
-            grad = (torch.abs(input_) < 0.05 * torch.abs(z)) * torch.abs(z) / (2 * 0.05)
-
-            # torch.div(grad, 1)
             ctx.save_for_backward(grad)
             out = (input_ > 0).float()
             
@@ -140,7 +171,7 @@ class MnistSpikingConv(MnistModel):
             (grad,) = ctx.saved_tensors
             grad_input = grad_output.clone()
 
-            return grad * grad_input
+            return grad * grad_input, None, None
 
 class MnistAttack(optimizee.Optimizee):
     def __init__(self, attack_model, batch_size=1, channel=1, width=28, height=28, c=0.1, gap=0.0,
