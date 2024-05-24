@@ -59,7 +59,7 @@ def train_optimizer_snn(device):
                 for j in range(truncated_bptt_step):
                     # Perfom a meta update using gradients from model
                     # and return the current meta model saved in the nn_optimizer
-                    meta_model, *_ = meta_optimizer.meta_update(model, data, target)
+                    meta_model, *_ = meta_optimizer.meta_update2(model, data, target)
 
                     # Compute a loss for a step the meta nn_optimizer
                     # Use first-order method to train the zeroth-order optimizer
