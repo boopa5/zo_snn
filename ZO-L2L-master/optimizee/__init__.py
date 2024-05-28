@@ -12,6 +12,7 @@ class Optimizee(nn.Module):
     def __init__(self):
         super(Optimizee, self).__init__()
 
+
     @staticmethod
     def dataset_loader(*input):
         raise NotImplementedError

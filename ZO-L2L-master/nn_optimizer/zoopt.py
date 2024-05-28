@@ -15,8 +15,8 @@ class ZOOptimizer(nn_optimizer.NNOptimizer):
     def __init__(self, model, args=None, num_layers=1, input_dim=1, hidden_size=10, q=1):
         super(ZOOptimizer, self).__init__(model, args)
 
-        self.update_rnn = nn.LSTM(input_dim, hidden_size, num_layers, batch_first=True, bias=False)
-        self.outputer = nn.Linear(hidden_size, 1, bias=False)
+        self.update_rnn = nn.LSTM(input_dim, hidden_size, num_layers, batch_first=True, bias=False, dtype=torch.double)
+        self.outputer = nn.Linear(hidden_size, 1, bias=False, dtype=torch.double)
         self.outputer.weight.data.mul_(0.1)
 
         self.hidden_size = hidden_size
@@ -25,17 +25,15 @@ class ZOOptimizer(nn_optimizer.NNOptimizer):
         self.q = q
         # self.q = args.grad_est_q
 
-    def reset_state(self, keep_states=False, model=None, use_cuda=False, gpu_num=0):
+    def reset_state(self, keep_states=False, model=None, use_cuda=False, gpu_num=0, device='cuda'):
         self.meta_model.reset()
         self.meta_model.copy_params_from(model)
         if keep_states:
-            self.h0 = Variable(self.h0.data)
-            self.c0 = Variable(self.c0.data)
+            self.h0 = Variable(self.h0.data).to(device)
+            self.c0 = Variable(self.c0.data).to(device)
         else:
             def initialize_rnn_hidden_state(dim_sum, n_layers, n_params):
-                h0 = Variable(torch.zeros(n_layers, n_params, dim_sum), requires_grad=True)
-                if use_cuda:
-                    h0.data = h0.data.cuda(gpu_num)
+                h0 = Variable(torch.zeros(n_layers, n_params, dim_sum), requires_grad=True).double().to(device)
                 return h0
 
             self.h0 = initialize_rnn_hidden_state(self.hidden_size, self.num_layers,
@@ -77,27 +75,23 @@ class ZOOptimizer(nn_optimizer.NNOptimizer):
         # Finally, copy values from the meta model to the normal one.
         self.meta_model.copy_params_to(model)
         return self.meta_model.model, loss, f_x
-    
+
 
     # using bp gradient from LocalZO
-    def meta_update2(self, model: nn.Module, data, target):
-        f_x = model(data)
-        loss = model.loss(f_x, target)
-
+    def meta_update2(self, model: nn.Module):
+ 
         flat_params = self.meta_model.get_flat_params()
-
-        model.zero_grad()
-        loss.backward()
         
         flat_grads = model.get_grads()
         inputs = Variable(flat_grads.view(-1, 1).unsqueeze(1))
 
         delta = self(inputs)
+        
         flat_params = flat_params + delta
 
         self.meta_model.set_flat_params(flat_params)
         self.meta_model.copy_params_to(model)
-        return self.meta_model.model, loss, f_x
+        return self.meta_model.model
 
 
 

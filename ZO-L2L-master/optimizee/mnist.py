@@ -80,6 +80,8 @@ class MnistConvModel(MnistModel):
 class SpikingMnistModel(optimizee.Optimizee):
     def __init__(self):
         super(SpikingMnistModel, self).__init__()
+        self.loss = SF.ce_rate_loss()
+
 
     @staticmethod
     def dataset_loader(data_dir='/tmp/data/mnist', batch_size=128, test_batch_size=128):
@@ -98,7 +100,7 @@ class SpikingMnistModel(optimizee.Optimizee):
         return train_loader, test_loader
 
     def loss(self, spk_rec, tgt):
-        loss = SF.ce_rate_loss(spk_rec, tgt)
+        loss = self.loss(spk_rec, tgt)
         return loss
     
 
@@ -114,14 +116,14 @@ class MnistSpikingConvModel(SpikingMnistModel):
     beta = 0.95
 
     def __init__(self):
-        super(MnistLinearModel).__init__()
+        super(MnistSpikingConvModel, self).__init__()
         spike_grad = self.local_zo(delta=0.6, q=1)
         
         # Initialize layers
-        self.fc1 = nn.Linear(MnistSpikingConvModel.num_inputs, MnistSpikingConvModel.num_hidden)
+        self.fc1 = nn.Linear(MnistSpikingConvModel.num_inputs, MnistSpikingConvModel.num_hidden, dtype=torch.double)
         self.lif1 = snn.Leaky(beta=MnistSpikingConvModel.beta, spike_grad=spike_grad)
 
-        self.fc2 = nn.Linear(MnistSpikingConvModel.num_hidden, MnistSpikingConvModel.num_outputs)
+        self.fc2 = nn.Linear(MnistSpikingConvModel.num_hidden, MnistSpikingConvModel.num_outputs, dtype=torch.double)
         self.lif2 = snn.Leaky(beta=MnistSpikingConvModel.beta, spike_grad=spike_grad)
 
 
@@ -136,9 +138,9 @@ class MnistSpikingConvModel(SpikingMnistModel):
         for _ in range(MnistSpikingConvModel.num_steps):
             cur1 = self.fc1(x)
             spk1, mem1 = self.lif1(cur1, mem1)
-            cur2 = self.fc2(spk1)
+            cur2 = self.fc2(spk1.double())
             spk2, mem2 = self.lif2(cur2, mem2)
-            spk2_rec.append(spk2)
+            spk2_rec.append(spk2.double())
             mem2_rec.append(mem2)
 
         # return torch.stack(spk2_rec, dim=0), torch.stack(mem2_rec, dim=0)

@@ -16,7 +16,7 @@ tasks = {
         "max_epoch": 20,
         'optimizer_steps': 200,
         'test_optimizer_steps': 200,
-        'attack_model': optimizee.mnist.MnistConvModel,
+        'attack_model': optimizee.mnist.MnistSpikingConvModel,
         'attack_model_ckpt': "./ckpt/attack_model/mnist_cnn.pt",
         'tests': {
             'optimizee': optimizee.mnist.MnistAttack,
