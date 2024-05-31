@@ -25,6 +25,9 @@ class ZOOptimizer(nn_optimizer.NNOptimizer):
         self.q = q
         # self.q = args.grad_est_q
 
+
+        
+
     def reset_state(self, keep_states=False, model=None, use_cuda=False, gpu_num=0, device='cuda'):
         self.meta_model.reset()
         self.meta_model.copy_params_from(model)
@@ -46,7 +49,10 @@ class ZOOptimizer(nn_optimizer.NNOptimizer):
         output1, (hn1, cn1) = self.update_rnn(x, (self.h0, self.c0))
         self.h0 = hn1
         self.c0 = cn1
+        print(output1.shape)
         o1 = self.outputer(output1)
+        print(o1.shape)
+        print(o1.squeeze().shape)
         return o1.squeeze()
 
 
